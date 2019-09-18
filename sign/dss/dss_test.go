@@ -2,6 +2,8 @@ package dss
 
 import (
 	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +13,7 @@ import (
 	dkg "go.dedis.ch/kyber/v3/share/dkg/rabin"
 	"go.dedis.ch/kyber/v3/sign/eddsa"
 	"go.dedis.ch/kyber/v3/sign/schnorr"
+	"go.dedis.ch/kyber/v3/util/encoding"
 )
 
 var suite = edwards25519.NewBlakeSHA256Ed25519()
@@ -30,7 +33,7 @@ func init() {
 	partPubs = make([]kyber.Point, nbParticipants)
 	partSec = make([]kyber.Scalar, nbParticipants)
 	for i := 0; i < nbParticipants; i++ {
-		sec, pub := genPair()
+		sec, pub := genPair(i)
 		partPubs[i] = pub
 		partSec[i] = sec
 	}
@@ -39,11 +42,11 @@ func init() {
 }
 
 func TestDSSNew(t *testing.T) {
-	dss, err := NewDSS(suite, partSec[0], partPubs, longterms[0], randoms[0], []byte("hello"), 4)
+	dss, err := NewDSS(suite, partSec[0], partPubs, longterms[0], randoms[0], []byte("hello3"), 4)
 	assert.NotNil(t, dss)
 	assert.Nil(t, err)
 
-	dss, err = NewDSS(suite, suite.Scalar().Zero(), partPubs, longterms[0], randoms[0], []byte("hello"), 4)
+	dss, err = NewDSS(suite, suite.Scalar().Zero(), partPubs, longterms[0], randoms[0], []byte("hello3"), 4)
 	assert.Nil(t, dss)
 	assert.Error(t, err)
 }
@@ -136,7 +139,7 @@ func TestDSSSignature(t *testing.T) {
 }
 
 func getDSS(i int) *DSS {
-	dss, err := NewDSS(suite, partSec[i], partPubs, longterms[i], randoms[i], []byte("hello"), t)
+	dss, err := NewDSS(suite, partSec[i], partPubs, longterms[i], randoms[i], []byte("hello3"), t)
 	if dss == nil || err != nil {
 		panic("nil dss")
 	}
@@ -210,12 +213,58 @@ func genDistSecret() []*dkg.DistKeyShare {
 		}
 		dkss[i] = dks
 	}
-	return dkss
 
+	cmmhexs := make([]string, 4)
+	cmmhexs[0] = "a73b1c6e5f47883c46cd84ea2cdf4af9b6fbed42448fca6d0a0c4044ac9062e3"
+	cmmhexs[1] = "ad7d60b53bebe7354f15e7b11cd64a43f8da78e9df60a2b6237fd9dce471a6da"
+	cmmhexs[2] = "55c20d16559d25be0725e316a778bc5834b91ddae41fcfcdeb656d1ada8054df"
+	cmmhexs[3] = "7dc1725605bd25abae21309dfecb0373767e3cb5e8a29e0d714c0e444b1ec684"
+	ponits := make([]kyber.Point, 4)
+	var err error
+	for i := 0; i < 4; i++ {
+		ponits[i], err = encoding.StringHexToPoint(new(edwards25519.Curve), cmmhexs[i])
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	prvhexs := make([]string, 7)
+	prvhexs[0] = "54b19ee1b3fe0d0306f5fe596c0d4da745fbaefc53f6f02898a2bb67ac999002"
+	prvhexs[1] = "03cef8ce4920dd0d54ee0f8f0e077bd7e554d2004a92436d33bbded709c4500e"
+	prvhexs[2] = "a9baa5074f04262fd5adec2cb908365d0c776e01cffe54a2cf9194a391b88f0a"
+	prvhexs[3] = "3b9f812f2bdcc3e1275788851518ba5c7c78e40605ab93355f8148b4be5efc09"
+	prvhexs[4] = "c1cf728d2b767f481471de47ee4064e5f86f95190e066e94d4e465f30b9e450f"
+	prvhexs[5] = "56cc690b833d0f2e8ce5f27f2f95b2f14474e2410c7f522c2217584af45d1a0d"
+	prvhexs[6] = "02e94cf07e003cb5573bc1dca3200291239c2c882185af6a3a738aa2f2852906"
+
+	for i := 0; i < len(dkss); i++ {
+		dkss[i].Commits = ponits
+		dkss[i].Share.I = i
+		dkss[i].Share.V, err = encoding.StringHexToScalar(new(edwards25519.Curve), prvhexs[i])
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Println("longterm?", i, dkss[i].Public())
+	}
+
+	return dkss
 }
-func genPair() (kyber.Scalar, kyber.Point) {
-	sc := suite.Scalar().Pick(suite.RandomStream())
-	return sc, suite.Point().Mul(sc, nil)
+
+func genPair(i int) (kyber.Scalar, kyber.Point) {
+	// sc := suite.Scalar().Pick(suite.RandomStream())
+	// return sc, suite.Point().Mul(sc, nil)
+	prvKeyStr := "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f6"
+	seed, err := hex.DecodeString(fmt.Sprintf("%s%d", prvKeyStr, i))
+	if err != nil {
+		panic(err)
+	}
+
+	group := new(edwards25519.Curve)
+	secret, _, _ := group.NewKeyAndSeedWithInput(seed)
+	public := group.Point().Mul(secret, nil)
+	fmt.Println(i, public)
+	return secret, public
 }
 
 func randomBytes(n int) []byte {
